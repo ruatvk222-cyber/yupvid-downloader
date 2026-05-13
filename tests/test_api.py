@@ -15,36 +15,64 @@ def client() -> httpx.AsyncClient:
     return httpx.AsyncClient(base_url="https://yupvid.com")
 
 
-async def test_list_projects_items_envelope(
-    httpx_mock: HTTPXMock, client: httpx.AsyncClient
-) -> None:
+async def test_list_projects_single_page(httpx_mock: HTTPXMock, client: httpx.AsyncClient) -> None:
     httpx_mock.add_response(
-        url="https://yupvid.com/api/projects/list",
-        json={"items": [{"id": "1", "title": "One"}, {"id": "2", "title": "Two"}]},
+        url="https://yupvid.com/api/projects?skip=0&take=50",
+        json={
+            "projects": [{"id": "1", "title": "One"}, {"id": "2", "title": "Two"}],
+            "total": 2,
+            "skip": 0,
+            "take": 50,
+            "hasMore": False,
+        },
     )
     api = YupVidClient(client)
     projects = await api.list_projects()
     assert [p.id for p in projects] == ["1", "2"]
 
 
-async def test_list_projects_falls_back_to_projects(
+async def test_list_projects_paginates_until_has_more_false(
     httpx_mock: HTTPXMock, client: httpx.AsyncClient
 ) -> None:
-    httpx_mock.add_response(url="https://yupvid.com/api/projects/list", status_code=404)
     httpx_mock.add_response(
-        url="https://yupvid.com/api/projects",
-        json=[{"id": "9", "title": "Nine"}],
+        url="https://yupvid.com/api/projects?skip=0&take=2",
+        json={
+            "projects": [{"id": "1"}, {"id": "2"}],
+            "total": 3,
+            "skip": 0,
+            "take": 2,
+            "hasMore": True,
+        },
+    )
+    httpx_mock.add_response(
+        url="https://yupvid.com/api/projects?skip=2&take=2",
+        json={
+            "projects": [{"id": "3"}],
+            "total": 3,
+            "skip": 2,
+            "take": 2,
+            "hasMore": False,
+        },
     )
     api = YupVidClient(client)
-    [project] = await api.list_projects()
-    assert project.id == "9"
+    projects = await api.list_projects(page_size=2)
+    assert [p.id for p in projects] == ["1", "2", "3"]
+
+
+async def test_list_projects_empty(httpx_mock: HTTPXMock, client: httpx.AsyncClient) -> None:
+    httpx_mock.add_response(
+        url="https://yupvid.com/api/projects?skip=0&take=50",
+        json={"projects": [], "total": 0, "skip": 0, "take": 10, "hasMore": False},
+    )
+    api = YupVidClient(client)
+    assert await api.list_projects() == []
 
 
 async def test_list_projects_session_expired(
     httpx_mock: HTTPXMock, client: httpx.AsyncClient
 ) -> None:
     httpx_mock.add_response(
-        url="https://yupvid.com/api/projects/list",
+        url="https://yupvid.com/api/projects?skip=0&take=50",
         status_code=401,
         json={"error": "Authentication required."},
     )
@@ -55,7 +83,7 @@ async def test_list_projects_session_expired(
 
 async def test_list_projects_server_error(httpx_mock: HTTPXMock, client: httpx.AsyncClient) -> None:
     httpx_mock.add_response(
-        url="https://yupvid.com/api/projects/list",
+        url="https://yupvid.com/api/projects?skip=0&take=50",
         status_code=500,
         json={"error": "Boom"},
     )

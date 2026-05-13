@@ -37,6 +37,7 @@ from yupvid_downloader.api import YupVidClient
 from yupvid_downloader.auth import (
     authenticated_client,
     clear_saved_session,
+    load_saved_session,
 )
 from yupvid_downloader.config import Settings
 from yupvid_downloader.downloader import BulkDownloader, DownloadResult, safe_filename
@@ -91,9 +92,16 @@ def login(ctx: click.Context, email: str | None, password: str | None) -> None:
             api = YupVidClient(client)
             # Validate by hitting the listing endpoint.
             projects = await api.list_projects()
+            persisted = load_saved_session(email) is not None
+            location = (
+                "session saved to keyring"
+                if persisted
+                else "session NOT persisted (no keyring backend) — pass --email/--password again "
+                "or set YUPVID_COOKIES_FILE next run"
+            )
             console.print(
                 f"[green]Logged in as {email}.[/green] "
-                f"Found {len(projects)} project(s). Session saved to keyring."
+                f"Found {len(projects)} project(s); {location}."
             )
 
     _run_or_die(_run())

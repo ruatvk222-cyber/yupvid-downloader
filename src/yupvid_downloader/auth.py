@@ -37,9 +37,23 @@ def _keyring_user(email: str) -> str:
     return f"session:{email.lower()}"
 
 
-def save_session(email: str, cookie_value: str) -> None:
-    """Persist a session cookie to the OS keyring."""
-    keyring.set_password(KEYRING_SERVICE, _keyring_user(email), cookie_value)
+def save_session(email: str, cookie_value: str) -> bool:
+    """Persist a session cookie to the OS keyring.
+
+    Returns ``True`` when the cookie was stored and ``False`` when no keyring
+    backend is available (e.g. headless CI/Docker). The caller may still use
+    the cookie for the current run; only persistence is affected.
+    """
+    try:
+        keyring.set_password(KEYRING_SERVICE, _keyring_user(email), cookie_value)
+        return True
+    except keyring.errors.KeyringError as exc:
+        logger.warning(
+            "keyring unavailable, session will not persist between runs (%s). "
+            "Install a keyring backend or set YUPVID_COOKIES_FILE to avoid this.",
+            exc,
+        )
+        return False
 
 
 def load_saved_session(email: str) -> str | None:

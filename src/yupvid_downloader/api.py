@@ -33,37 +33,43 @@ class YupVidClient:
     async def list_projects(
         self,
         *,
-        page: int | None = None,
-        page_size: int | None = None,
+        page_size: int = 50,
+        max_pages: int = 1000,
     ) -> list[Project]:
-        """Return all projects belonging to the authenticated user.
+        """Return *all* projects belonging to the authenticated user.
 
-        Tries the dedicated ``/api/projects/list`` first, then falls back to the
-        bare ``/api/projects`` collection if the former is not exposed.
+        The real endpoint is ``GET /api/projects``, which returns::
+
+            {"projects": [...], "total": N, "skip": X, "take": Y, "hasMore": bool}
+
+        We paginate via ``skip`` / ``take`` until ``hasMore`` is false.
+        ``page_size`` defaults to 50; ``max_pages`` is a safety cap.
         """
-        params: dict[str, Any] = {}
-        if page is not None:
-            params["page"] = page
-        if page_size is not None:
-            params["pageSize"] = page_size
-
-        for path in ("/api/projects/list", "/api/projects"):
-            response = await self._http.get(path, params=params or None)
-            if response.status_code == 404:
-                continue
-            self._raise_for_status(response, path)
+        results: list[Project] = []
+        skip = 0
+        for _ in range(max_pages):
+            response = await self._http.get(
+                "/api/projects",
+                params={"skip": skip, "take": page_size},
+            )
+            self._raise_for_status(response, "/api/projects")
             try:
-                payload = response.json()
+                payload: Any = response.json()
             except ValueError as exc:
                 raise APIError(
                     response.status_code,
-                    f"expected JSON from {path}, got {response.text[:200]!r}",
-                    endpoint=path,
+                    f"expected JSON from /api/projects, got {response.text[:200]!r}",
+                    endpoint="/api/projects",
                 ) from exc
-            return parse_project_list(payload)
-        raise APIError(
-            404, "no project listing endpoint available", endpoint="/api/projects[/list]"
-        )
+
+            page = parse_project_list(payload)
+            results.extend(page)
+
+            has_more = bool(payload.get("hasMore", False)) if isinstance(payload, dict) else False
+            if not has_more or not page:
+                break
+            skip += len(page)
+        return results
 
     async def get_download_info(self, project_id: str) -> DownloadInfo | None:
         """Ask the API for download metadata.
